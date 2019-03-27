@@ -1,5 +1,6 @@
 import React, { Component } from 'react';
-
+import { connect } from 'react-redux';
+import { compose } from 'recompose';
 import { AuthUserContext } from '../Session';
 import { withFirebase } from '../Firebase';
 import MessageList from './MessageList';
@@ -16,7 +17,16 @@ class Messages extends Component {
     };
   }
 
+  componentDidUpdate(props) {
+    if (props.limit !== this.props.limit) {
+      this.onListenForMessages();
+    }
+  }
+
   componentDidMount() {
+    if (!this.props.messages.length) {
+      this.setState({ loading: true });
+    }
     this.onListenForMessages();
   }
 
@@ -26,23 +36,11 @@ class Messages extends Component {
     this.props.firebase
       .messages()
       .orderByChild('createdAt')
-      .limitToLast(this.state.limit)
+      .limitToLast(this.props.limit)
       .on('value', snapshot => {
-        const messageObject = snapshot.val();
+        this.props.onSetMessages(snapshot.val());
 
-        if (messageObject) {
-          const messageList = Object.keys(messageObject).map(key => ({
-            ...messageObject[key],
-            uid: key,
-          }));
-
-          this.setState({
-            messages: messageList,
-            loading: false,
-          });
-        } else {
-          this.setState({ messages: null, loading: false });
-        }
+        this.setState({ loading: false });
       });
   };
 
@@ -79,15 +77,12 @@ class Messages extends Component {
   };
 
   onNextPage = () => {
-    this.setState(
-      state => ({ limit: state.limit + 5 }),
-      this.onListenForMessages,
-    );
+    this.props.onSetMessagesLimit(this.props.limit + 5);
   };
 
   render() {
-    const { users } = this.props;
-    const { text, messages, loading } = this.state;
+    const { users, messages } = this.props;
+    const { text, loading } = this.state;
 
     return (
       <AuthUserContext.Consumer>
@@ -118,7 +113,7 @@ class Messages extends Component {
 
             <form
               onSubmit={event =>
-                this.onCreateMessage(event, authUser)
+                this.onCreateMessage(event, this.props.authUser)
               }
             >
               <input
@@ -135,4 +130,28 @@ class Messages extends Component {
   }
 }
 
-export default withFirebase(Messages);
+const mapStateToProps = state => ({
+  authUser: state.sessionState.authUser,
+  messages: Object.keys(state.messageState.messages || {}).map(
+    key => ({
+      ...state.messageState.messages[key],
+      uid: key,
+    }),
+  ),
+  limit: state.messageState.limit,
+});
+
+const mapDispatchToProps = dispatch => ({
+  onSetMessages: messages =>
+    dispatch({ type: 'MESSAGES_SET', messages }),
+  onSetMessagesLimit: limit =>
+    dispatch({ type: 'MESSAGES_LIMIT_SET', limit }),
+});
+
+export default compose(
+  withFirebase,
+  connect(
+    mapStateToProps,
+    mapDispatchToProps,
+  ),
+)(Messages);
